@@ -7,6 +7,29 @@
 
 EvaLoop is a framework for evaluating the robustness of Large Language Models (LLMs) through iterative dual-task cycles. The framework measures how many cycles an LLM can execute before generating code that fails functional testing, providing a quantitative metric for model robustness. It accompanies the paper [*EvaLoop: Assessing LLM Robustness in Programming from a Self-consistency Perspective*](https://arxiv.org/abs/2505.12185); results across models are published on the [leaderboard](https://evalooop.github.io/).
 
+## 🍴 This fork: code ↔ pseudocode loop + Vertex AI Gemini (CSC 591/791 Assignment 4)
+
+Branch `pseudocode-loop` adds a new loop type and a backend; everything else is upstream.
+
+```bash
+evaloop evaluate --model gemini-3.5-flash-lite --gcp_project <project> \
+                 --loop_type code_generation_pseudocode      # or code_generation_summarization
+```
+
+**New files**
+- `evaloop/tasks/code_pseudocode.py`: `CodePseudocodeTask`, the inverse task of the new loop. It asks for language-agnostic pseudocode instead of a one-sentence summary. It subclasses `CodeSummarizationTask` to reuse `postprocess` unchanged, so the original assert line is re-attached exactly as in the standard loop. It also unwraps a fenced block and replaces `"""` with `'''`, so the docstring wrapper keeps the assert at line `[-2]`.
+- `evaloop/models/vertex_gemini.py`: Gemini on Vertex AI via `google-genai`. Greedy decoding with thinking off, a thread-pooled `batch_generate` that the cycle runner picks up automatically, retries with jitter on 429/5xx, fail-fast on 401/403/404, and token-usage accounting.
+- `tests/test_code_pseudocode.py`: offline tests (mocked model, fake `google.genai`).
+
+**Modified files, and why**
+- `core/config.py`: the one place a new loop must touch, per CONTRIBUTING. Adds the `code_generation_pseudocode` task sequence. Both loops share the same generation config, so only the inverse task differs. Also adds `loop_type`, `task_ids_file` and Vertex settings, and routes `gemini*` model names to the new backend.
+- `core/evaluator.py`: used to run a hard-coded `"code_generation_summarization"` sequence. It now runs `config.loop_type`, optionally restricts to `--task_ids_file`, and records `loop_type` and token `usage` in the results JSON.
+- `cli.py`: exposes `--loop_type`, `--task_ids_file`, `--gcp_project`, `--gcp_location`, `--thinking_budget` and `--max_workers`.
+- `models/factory.py`: registers the Gemini backend. It also imports the vLLM backend lazily, because the eager import raised `ImportError` without vLLM and made *every* model type unusable on non-CUDA machines.
+- `tasks/__init__.py`: one import line registering the new task.
+
+**Running on macOS:** EvalPlus's `RLIMIT_AS` memory cap is rejected by macOS, which makes every test fail silently. Set `EVALPLUS_MAX_MEMORY_BYTES=-1` and run inside a sandbox; see the assignment submission's `run_sandboxed.sh`.
+
 ## 🚀 Quick Start
 
 ### Installation
