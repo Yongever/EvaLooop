@@ -5,8 +5,8 @@ from typing import Dict, Any
 
 from .base import BaseLLM
 from .open_source import HuggingFaceLLM
-from .open_source_vllm import VllmLLM
 from .closed_source import OpenAILLM
+from .vertex_gemini import VertexGeminiLLM
 
 
 class ModelFactory:
@@ -45,9 +45,14 @@ class ModelFactory:
         if model_type in ["llama", "deepseek", "huggingface", "open_source"]:
             return HuggingFaceLLM(model_config)
         elif model_type in ["vllm"]:
+            # Imported lazily: the module raises ImportError without vllm installed,
+            # which would otherwise make every model type unusable on non-CUDA machines.
+            from .open_source_vllm import VllmLLM
             return VllmLLM(model_config)
         elif model_type in ["openai", "chatgpt", "closed_source"]:
             return OpenAILLM(model_config)
+        elif model_type in ["vertex_gemini", "gemini"]:
+            return VertexGeminiLLM(model_config)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
@@ -66,5 +71,7 @@ class ModelFactory:
             "vllm",
             "openai",
             "chatgpt",
-            "closed_source"
+            "closed_source",
+            "vertex_gemini",
+            "gemini",
         ]

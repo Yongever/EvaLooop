@@ -16,7 +16,12 @@ class EvaluationConfig:
     # Dataset configuration
     dataset: str = "mbpp_plus"
     languages: List[str] = field(default_factory=lambda: ["python"])
-    
+    # Optional file with one task id per line; None evaluates every task
+    task_ids_file: Optional[str] = None
+
+    # Loop configuration (see get_task_configs for the supported loop types)
+    loop_type: str = "code_generation_summarization"
+
     # Evaluation parameters
     max_cycles: int = 10
     temperature: float = 0.0
@@ -50,7 +55,13 @@ class EvaluationConfig:
     
     # API configuration
     openai_api_key: Optional[str] = None
-    
+
+    # Vertex AI (Gemini) configuration
+    gcp_project: Optional[str] = None
+    gcp_location: str = "global"  # Gemini 3.x models are served from the global endpoint
+    thinking_budget: Optional[int] = 0  # 0 disables Gemini thinking; None keeps the model default
+    max_workers: int = 8  # concurrent API requests per cycle
+
     def __post_init__(self):
         """Validate configuration after initialization."""
         if not self.model:
@@ -129,7 +140,9 @@ class EvaluationConfig:
     def _create_model_config(self, model: str) -> Dict[str, Any]:
         """Create configuration for a specific model."""
         # Determine model type based on model name/path
-        if any(provider in model.lower() for provider in ["gpt", "chatgpt", "openai"]):
+        if "gemini" in model.lower():
+            model_type = "vertex_gemini"
+        elif any(provider in model.lower() for provider in ["gpt", "chatgpt", "openai"]):
             model_type = "openai"
         elif "claude" in model.lower():
             model_type = "anthropic"
@@ -155,6 +168,17 @@ class EvaluationConfig:
                 "model_id": model,
                 "api_key": self.openai_api_key,
                 "max_tokens": self.max_model_len,
+            })
+        elif model_type == "vertex_gemini":
+            base_config.update({
+                # Vertex AI ids have no publisher prefix ("google/gemini-x" -> "gemini-x")
+                "model_id": model.split("/")[-1],
+                "project": self.gcp_project,
+                "location": self.gcp_location,
+                "max_tokens": self.max_model_len,
+                "seed": self.seed,
+                "thinking_budget": self.thinking_budget,
+                "max_workers": self.max_workers,
             })
         elif model_type == "anthropic":
             base_config.update({
@@ -402,22 +426,34 @@ class EvaluationConfig:
         # This method is now replaced by _is_vllm_supported but kept for backward compatibility
         return self._is_vllm_supported(model)
     
-    def get_task_configs(self, task_type: str = "code_generation_summarization") -> List[Dict[str, Any]]:
-        """Generate task configurations based on task type."""
+    def get_task_configs(self, task_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Generate task configurations based on task type (defaults to self.loop_type)."""
+        task_type = task_type or self.loop_type
+        # Shared by every loop so that only the inverse task differs between loop types
+        generation_config = {
+            "type": "code_generation",
+            "language": "python",
+            "prompt_template": "Generate Python code for the following task: \n{description}\nReturn only the code, without explanations or comments.",
+        }
         if task_type == "code_generation_summarization":
             return [
-                {
-                    "type": "code_generation",
-                    "language": "python",
-                    "prompt_template": "Generate Python code for the following task: \n{description}\nReturn only the code, without explanations or comments.",
-                },
+                generation_config,
                 {
                     "type": "code_summarization", 
                     "prompt_template": "Use one sentence to summarize the following code and start with 'write a python function to':\n\n```\n{code}\n```\n\n```\nwrite a python function to\n```",
                 },
             ]
+        elif task_type == "code_generation_pseudocode":
+            # Code <-> pseudocode loop; the task's default prompt template is used
+            return [
+                generation_config,
+                {"type": "code_pseudocode"},
+            ]
         elif task_type == "code_translation":
             # Code translation is not currently supported but kept as interface
             raise NotImplementedError("Code translation is not currently supported")
         else:
-            raise ValueError(f"Unsupported task type: {task_type}. Currently only 'code_generation_summarization' is supported.")
+            raise ValueError(
+                f"Unsupported task type: {task_type}. Supported: "
+                "'code_generation_summarization', 'code_generation_pseudocode'."
+            )

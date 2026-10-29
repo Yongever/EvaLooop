@@ -10,6 +10,7 @@ from .factory import TaskFactory, register_task
 from .code_generation import CodeGenerationTask
 from .code_summarization import CodeSummarizationTask
 from .code_translation import CodeTranslationTask
+from .code_pseudocode import CodePseudocodeTask
 
 __all__ = [
     "BaseTask",
@@ -18,4 +19,5 @@ __all__ = [
     "CodeGenerationTask",
     "CodeSummarizationTask",
     "CodeTranslationTask",
+    "CodePseudocodeTask",
 ]

@@ -53,7 +53,7 @@ class EvaLoopEvaluator:
         model_result = self._run_evaluation_cycles(model, tasks, prompts, py_problems, tester)
         
         # Save and return results
-        self._save_results([model_result], "code_generation_summarization")
+        self._save_results([model_result], self.config.loop_type)
         return [model_result]
     
     def run_code_translation(self) -> Dict[str, Any]:
@@ -77,7 +77,7 @@ class EvaLoopEvaluator:
     
     def _create_tasks(self):
         """Create task instances."""
-        task_configs = self.config.get_task_configs("code_generation_summarization")
+        task_configs = self.config.get_task_configs(self.config.loop_type)
         tasks = [self.task_factory.create_task(config) for config in task_configs]
         self.logger.info(f"Created {len(tasks)} tasks for evaluation")
         return tasks
@@ -86,10 +86,14 @@ class EvaLoopEvaluator:
         """Load and prepare the dataset."""
         py_problems, ground_truth = load_mbpp_dataset()
         self.logger.info(f"Loaded MBPP dataset with {len(py_problems)} problems")
-        
+
+        task_ids = self._load_task_ids()
+
         # Prepare prompts from dataset
         prompts = []
         for task_id, problem in py_problems.items():
+            if task_ids is not None and task_id not in task_ids:
+                continue
             prompts.append({
                 "task_id": task_id,
                 "prompt": problem["prompt"]
@@ -97,6 +101,15 @@ class EvaLoopEvaluator:
         
         self.logger.info(f"Prepared {len(prompts)} prompts from MBPP dataset")
         return prompts, py_problems
+
+    def _load_task_ids(self):
+        """Read the optional task subset (one id per line); None means all tasks."""
+        if not self.config.task_ids_file:
+            return None
+        lines = Path(self.config.task_ids_file).read_text().splitlines()
+        task_ids = {line.strip() for line in lines if line.strip()}
+        self.logger.info(f"Restricting evaluation to {len(task_ids)} task ids from {self.config.task_ids_file}")
+        return task_ids
     
     def _create_tester(self, py_problems):
         """Create the code tester."""
@@ -135,7 +148,11 @@ class EvaLoopEvaluator:
         
         # Finalize results
         self._finalize_model_result(model_result)
-        
+
+        # Token usage, for API backends that track it (used to report cost)
+        if getattr(model, "usage", None) is not None:
+            model_result["usage"] = dict(model.usage)
+
         return model_result
     
     def _initialize_model_result(self, model, prompts) -> Dict[str, Any]:
@@ -144,6 +161,7 @@ class EvaLoopEvaluator:
             "model": str(model),
             # Loop budget M; needed by the analyzer to normalize the ASL metrics
             "max_cycles": self.config.max_cycles,
+            "loop_type": self.config.loop_type,
             "prompt_results": []
         }
         

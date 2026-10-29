@@ -92,6 +92,12 @@ class EvaLoopCLI:
         preferred_batch_size: int = 64,
         is_chat_model: bool = True,
         system_prompt: str = "You are a helpful programming assistant.",
+        loop_type: str = "code_generation_summarization",
+        task_ids_file: Optional[str] = None,
+        gcp_project: Optional[str] = None,
+        gcp_location: str = "global",
+        thinking_budget: Optional[int] = 0,
+        max_workers: int = 8,
     ) -> Dict[str, Any]:
         """
         Run code generation and summarization evaluation experiment.
@@ -128,6 +134,15 @@ class EvaLoopCLI:
             preferred_batch_size: Preferred batch size when auto-batching.
             is_chat_model: Whether the model is a chat/instruction-tuned model.
             system_prompt: System prompt for chat models.
+            loop_type: Loop to run: "code_generation_summarization" (standard) or
+                       "code_generation_pseudocode" (code <-> pseudocode).
+            task_ids_file: Optional file with one task id per line to evaluate a subset.
+            gcp_project: GCP project for Gemini models on Vertex AI
+                         (defaults to the GOOGLE_CLOUD_PROJECT env var).
+            gcp_location: Vertex AI region for Gemini models.
+            thinking_budget: Gemini thinking budget in tokens (0 disables thinking,
+                             -1 lets the model decide).
+            max_workers: Concurrent requests per cycle for Gemini models.
 
         Returns:
             Dictionary containing evaluation results with successful cycles for each task.
@@ -203,6 +218,12 @@ class EvaLoopCLI:
             is_chat_model=is_chat_model,
             system_prompt=system_prompt,
             openai_api_key=openai_api_key,
+            loop_type=loop_type,
+            task_ids_file=task_ids_file,
+            gcp_project=gcp_project,
+            gcp_location=gcp_location,
+            thinking_budget=thinking_budget,
+            max_workers=max_workers,
         )
         # Log model type detection results
         model_config = config.get_model_config()
@@ -216,6 +237,10 @@ class EvaLoopCLI:
             self.logger.info(f"  HuggingFace config: device={model_config['device']}")
         elif model_type in ["openai", "anthropic"]:
             self.logger.info(f"  API config: model_id={model_config['model_id']}")
+        elif model_type == "vertex_gemini":
+            self.logger.info(f"  Vertex AI config: model_id={model_config['model_id']}, "
+                           f"project={model_config['project']}, location={model_config['location']}")
+        self.logger.info(f"Loop type: {loop_type}")
 
         # Create and run evaluator
         evaluator = EvaLoopEvaluator(config)
